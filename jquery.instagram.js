@@ -7,127 +7,163 @@
  */
 
 (function ($){
-  $.fn.instagram = function (options) {
-    var that = this,
-        apiEndpoint = "https://api.instagram.com/v1",
-        settings = {
-            hash: null
-          , userId: null
-          , locationId: null
-          , search: null
-          , accessToken: null
-          , clientId: null
-          , show: null
+  $.fn.extend({
+    instagram: function(options, callback) {
+      var that = this;
+      var defaults = {
+          url: null
+          , apiEndpoint: "https://api.instagram.com"
+          , v: "/v1"
+          , type: false
+          , query: {
+              tag: "/tags/{{q}}/media/recent"
+              , tag_search: "/tags/search"
+              , search: "/media/search"
+              , user: "/users/{{q}}/media/recent"
+              , location: "/locations/{{q}}/media/recent"
+              , popular: "/media/popular"
+            }
+          , q: null
+          , params: {}
+            /* options:
+              params.access_token
+              params.client_id
+              params.count //defaults to 20
+              params.distance
+              params.lat
+              params.lng
+              params.max_id
+              params.max_timestamp
+              params.min_id
+              params.min_timestamp
+              params.q //overridden if settings.q is not null
+              */
+          , image_size: "thumbnail"
           , onLoad: null
           , onComplete: null
-          , maxId: null
-          , minId: null
-          , next_url: null
-          , image_size: null
         };
-        
-    options && $.extend(settings, options);
-    
-    function createPhotoElement(photo) {
-      var image_url = photo.images.thumbnail.url;
-      
-      if (settings.image_size == 'low_resolution') {
-        image_url = photo.images.low_resolution.url;
-      }
-      else if (settings.image_size == 'thumbnail') {
-        image_url = photo.images.thumbnail.url;
-      }
-      else if (settings.image_size == 'standard_resolution') {
-        image_url = photo.images.standard_resolution.url;
-      }
 
-      return $('<div>')
-        .addClass('instagram-placeholder')
-        .attr('id', photo.id)
-        .append(
-          $('<a>')
-            .attr('target', '_blank')
-            .attr('href', photo.link)
-            .append(
-              $('<img>')
-                .addClass('instagram-image')
-                .attr('src', image_url)
-            )
-        );
-    }
-    
-    function createEmptyElement() {
-      return $('<div>')
-        .addClass('instagram-placeholder')
-        .attr('id', 'empty')
-        .append($('<p>').html('No photos for this query'));
-    }
-    
-    function composeRequestURL() {
+      return this.each(function(){
+        //perform for each of the elements passed in
+        var settings = $.extend(true, defaults, options);
+        var methods = {
+          el: null,
+          init: function($el){
+            this.el = $el;
+            if(settings.url == null) {
+              settings.url = this.composeRequestURL();
+            }
 
-      var url = apiEndpoint,
-          params = {};
-      
-      if (settings.next_url != null) {
-        return settings.next_url;
-      }
+            settings.q = settings.q.replace(" ", "_");
+            this.bindLoadEvent();
+            this.loadStream();
+            if($.isFunction(callback)) { callback(); }
+          },
+          composeRequestURL: function() {
+            //TODO: store the next_url and next_id on the element as data
+            var url = settings.apiEndpoint;
+            url += settings.v;
 
-      if (settings.hash != null) {
-        url += "/tags/" + settings.hash + "/media/recent";
-      }
-      else if (settings.search != null) {
-        url += "/media/search";
-        params.lat = settings.search.lat;
-        params.lng = settings.search.lng;
-        settings.search.max_timestamp != null && (params.max_timestamp = settings.search.max_timestamp);
-        settings.search.min_timestamp != null && (params.min_timestamp = settings.search.min_timestamp);
-        settings.search.distance != null && (params.distance = settings.search.distance);
-      }
-      else if (settings.userId != null) {
-        url += "/users/" + settings.userId + "/media/recent";
-      }
-      else if (settings.locationId != null) {
-        url += "/locations/" + settings.locationId + "/media/recent";
-      }
-      else {
-        url += "/media/popular";
-      }
-      
-      settings.accessToken != null && (params.access_token = settings.accessToken);
-      settings.clientId != null && (params.client_id = settings.clientId);
-      settings.minId != null && (params.min_id = settings.minId);
-      settings.maxId != null && (params.max_id = settings.maxId);
-      settings.show != null && (params.count = settings.show);
+            //load predefined pattern, replacing token with query
+            if(typeof settings.query[settings.type] != "undefined"){
+              url += settings.query[settings.type].replace("{{q}}", settings.q)
+              if(settings.type.search("search") != -1 && settings.q != null) { settings.params.q = settings.q; }
+            } else {
+              url += settings.query.popular;
+            }
 
-      url += "?" + $.param(params)
-      
-      return url;
-    }
-    
-    settings.onLoad != null && typeof settings.onLoad == 'function' && settings.onLoad();
-    
-    $.ajax({
-      type: "GET",
-      dataType: "jsonp",
-      cache: false,
-      url: composeRequestURL(),
-      success: function (res) {
-        var length = typeof res.data != 'undefined' ? res.data.length : 0;
-        var limit = settings.show != null && settings.show < length ? settings.show : length;
-        
-        if (limit > 0) {
-          for (var i = 0; i < limit; i++) {
-            that.append(createPhotoElement(res.data[i]));
+            // construct querystring from parameters
+            if(settings.params != null) {
+              url += "?" + $.param(settings.params)
+            }
+
+            return url;
+          },
+          bindLoadEvent: function(){
+            var context = this;
+            context.el.bind("loadMore", function(){
+              context.loadStream();
+            });
+          },
+          loadStream: function(){
+            var context = this;
+            if(!context.el.hasClass("instagram_loading") && !context.el.hasClass("instagram_stream_end_reached")) {
+              context.el.addClass('instagram_loading');
+              var loadingIndicator = context.createLoadingIndicator().appendTo(context.el);
+              $.ajax({
+                type: "GET",
+                dataType: "jsonp",
+                cache: false,
+                url: settings.url,
+                success: function (res) {
+                  // TODO: report successful responses that contain error messaging
+                  var length = typeof res.data != 'undefined' ? res.data.length : 0;
+                  var limit = settings.show != null && settings.show < length ? settings.show : length;
+                  
+                  if (typeof res.data != 'undefined' && res.data.length > 0) {
+                    $.each(res.data, function(i,v){
+                      // TODO: animate each one in on load
+                      context.el.append(context.createPhotoElement(v));
+                    });
+                    if(typeof res.pagination.next_url != "undefined"){
+                      settings.url = res.pagination.next_url;
+                    } else {
+                      context.el.addClass("instagram_stream_end_reached").append(context.createEndIndicator());
+                    }
+                  }
+                  else {
+                    context.el.append(context.createEmptyPlaceholder());
+                  }
+                },
+                error: function(){
+                  // TODO: report errors
+                },
+                complete: function(){
+                  $(loadingIndicator).remove();
+                  context.el.removeClass("istagram_loading");
+                }
+              }); //end ajax
+            }// endif
+          },
+          createEmptyPlaceholder: function() {
+            return $('<div>', {
+              "class": 'instagram-placeholder',
+              html: "<p>No photos for this query.</p>"
+            });
+          },
+          createEndIndicator: function(){
+            return $("<div>", {
+              "class": "instagram-endIndicator",
+              text: "End of stream reached."
+            })
+          },
+          createLoadingIndicator: function(){
+            return $("<div>", {
+              "class": "instagram-loadingIndicator",
+              text: "Loading more photos..."
+            });
+          },
+          createPhotoElement: function(data) {
+            return $('<div>', {
+                "class": 'instagram-placeholder'
+                , id: data.id
+              }).append(
+                $('<a>', {
+                  href: data.images.standard_resolution.url //data.link
+                  , rel: "external"
+                }).append(
+                    $('<img>', {
+                      "class": "instagram-image"
+                      , src: data.images[settings.image_size].url
+                    })
+                  )
+              );
           }
-        }
-        else {
-          that.append(createEmptyElement());
-        }
+        }; //end methods
 
-        settings.onComplete != null && typeof settings.onComplete == 'function' && settings.onComplete(res.data, res);
-      }
-    });
-    
-    return this;
-  };
+        methods.init($(this));
+
+      }); //end each
+    } //end instagram
+  });
 })(jQuery);
