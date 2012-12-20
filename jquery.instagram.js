@@ -120,7 +120,7 @@
                 },
                 complete: function(){
                   $(loadingIndicator).remove();
-                  context.el.removeClass("istagram_loading");
+                  context.el.removeClass("instagram_loading");
                 }
               }); //end ajax
             }// endif
