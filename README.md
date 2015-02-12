@@ -1,6 +1,8 @@
-# Instagram jQuery plugin [![endorse](http://api.coderwall.com/oomlaut/endorsecount.png)](http://coderwall.com/oomlaut)
+# Instagram jQuery plugin 
 
 A simple jQuery plugin to show a list of Instagram photos.
+
+[![endorse](http://api.coderwall.com/oomlaut/endorsecount.png)](http://coderwall.com/oomlaut)
 
 ## Usage
 
